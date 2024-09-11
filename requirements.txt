@@ -4,3 +4,6 @@ flask-cors
 loguru
 waitress
 db-sqlite3
+fastapi
+pydantic
+uvicorn

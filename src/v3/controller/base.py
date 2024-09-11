@@ -1,4 +1,6 @@
-import datetime
+from datetime import datetime
+from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 from loguru import logger
 from storage import Storage
 from storage.user import UserStorage
@@ -6,6 +8,7 @@ from storage.message import MessageStorage
 from service.auth import AuthService
 from service.user import UserService
 from service.message import MessageService
+
 
 class Services(type):
     _storage = Storage()
@@ -17,50 +20,48 @@ class Services(type):
 
     def user_service(self) -> UserService:
         return self._userService
-    
+
     def auth_service(self) -> AuthService:
         return self._authService
-    
+
     def message_service(self) -> MessageService:
         return self._messageService
-    
+
     def auth(self, request: any) -> int:
         try:
-            token = request.headers.get('Authorization')
+            token = request.headers.get("Authorization")
             if token is None or len(token) == 0:
-                return None          
+                return None
 
             id = self._auth_service.check(token)
 
             if id is None:
                 return None
-            
+
             return id
-        
+
         except Exception as e:
-            logger.error(f'Error checking token: {e}')
+            logger.error(f"Error checking token: {e}")
             return None
+
 
 class Response:
     @staticmethod
-    def create_response(status: int, message: str, data: dict = None):        
-        ret = {        
-            "message": message,
-            "timestamp": datetime.now().isoformat()
-        }
+    def create_response(status: int, message: str, data: dict = None):
+        ret = {"message": message, "timestamp": datetime.now().isoformat()}
 
         if data is not None:
-            for key in data:
-                ret[key] = data[key]
+            ret.update(data)
 
-        logger.info(f'Response {status}: {ret}')                
+        logger.info(f"Response {status}: {ret}")
 
-        return ret, status
-    
+        return JSONResponse(content=ret, status_code=status)
+
     @staticmethod
     def create_error_response(status: int, error: str):
-        logger.error(f'Error {status}: {error}')
-        return {
+        logger.error(f"Error {status}: {error}")
+        ret = {
             "error": error,
             "timestamp": datetime.now().isoformat()
-        }, status
+        }
+        raise HTTPException(status_code=status, detail=ret)
