@@ -1,85 +1,106 @@
-from flask_restplus import Resource, Namespace, fields
-from flask import request
+from fastapi import APIRouter, HTTPException, Request, Depends, status
 from loguru import logger
-from datetime import datetime
 from base import Services, Response
 from domain.message import Message
+from v3.schemas.message_schema import MessageSchema
 
-api = Namespace('Message',description='Message related operations')
-
-messageModel = api.model('MessageModel', {
-    'text': fields.String
-})
+router = APIRouter(tags="Message")
 
 services = Services()
 
-@api.route('/')
-class MessageController(Resource):    
-    @api.expect(messageModel)
-    @api.param('id','New message id')
-    def send(self):
-        try:
-            user_id = services.auth(request)
-            
-            if user_id is None or len(user_id) == 0:
-                return Response.create_error_response(401, 'Unauthorized')
-                        
-            text = request.json.get('text')
+@router.post("/")
+async def send_message(message: MessageSchema, request: Request):
+    try:
+        user_id = services.auth(request)
 
-            if text is None or len(text) == 0:
-                return Response.create_error_response(400, 'Empty text')
-            
-            user = services.user_service.get(id)            
-            msg = Message(user, text)
-            
-            msg.set_id(services.message_service.send(msg))
-            return Response.create_response(201, 'Message sent', {'id': msg.get_id})
-                        
-        except Exception as e:
-            logger.error(f'Error sending message: {e}')
-            return Response.create_response(500, str(e))
+        if not user_id:
+            Response.create_error_response(
+                status=status.HTTP_401_UNAUTHORIZED,
+                error="Unauthorized"
+            )
+
+        if not message.text:
+            Response.create_error_response(
+                status=status.HTTP_400_BAD_REQUEST, 
+                error="Empty text"
+            )
+
+        user = services.user_service.get(user_id)            
+        msg = Message(user, message.text)
+
+        msg.set_id(services.message_service.send(msg))
+        return Response.create_response(
+            status=status.HTTP_201_CREATED, 
+            message='Message sent', 
+            data={'id': msg.get_id()})
+
+    except Exception as e:
+        logger.error(f"Error sending message: {e}")
+        Response.create_error_response(
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            error=str(e))
+
+
+@router.get("/")
+async def get_messages(last: str = None, request: Request):
+    try:
+        user_id = services.auth(request)
+
+        if not user_id:
+            Response.create_error_response(
+                status=status.HTTP_401_UNAUTHORIZED,
+                error="Unauthorized"
+            )
+
+        messages = services.message_service.get_from_last(last)
+        if messages is None:
+            Response.create_error_response(
+                status=status.HTTP_404_NOT_FOUND,
+                error="Message not found"
+            )
+
+        return Response.create_response(
+            status=status.HTTP_200_OK, 
+            message='Message loaded', 
+            data={'data': messages.ToJson()})
+
+    except Exception as e:
+        Response.create_error_response(
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            error=str(e))
+
+
+@router.get("/{id}")
+async def get_message(id: int, request: Request):
+    try:
+        user_id = services.auth(request)
+
+        if not user_id:
+            Response.create_error_response(
+                status=status.HTTP_401_UNAUTHORIZED,
+                error="Unauthorized"
+            )
+
+        if id < 0:
+            Response.create_error_response(
+                status=status.HTTP_400_BAD_REQUEST,
+                error="Invalid message index"
+            )
+
+        message = services.message_service.get(id)
+        if message is None:
+            return Response.create_error_response(
+                status=status.HTTP_404_NOT_FOUND,
+                error="Message not found"
+            )
         
-    def get(self):
-        try:
-            user_id = self.auth(request)
-            
-            if user_id is None or len(user_id) == 0:
-                return Response.create_error_response(401, 'Unauthorized')
-            
-            last = request.args.get('last')
-            
-            m = services.message_service.get_from_last(last)
-            if m is None:
-                return Response.create_error_response(404, 'Message not found')
-            
-            return Response.create_response(200, 'Message loaded', { 'data': m.ToJson()} )
-        
-        except Exception as e:
-            logger.error(f'Error getting message: {e}')
-            return Response.create_response(500, str(e))
-        
-@api.route('/<id>')
-class MessageController(Resource):    
-    def get(self, id: int):
-        try:
-            user_id = services.auth(request)
-            
-            if user_id is None or len(user_id) == 0:
-                return Response.create_error_response(401, 'Unauthorized')
-            
-            if not id.isdigit():
-                return Response.create_error_response(400, 'Invalid message index')
-            
-            id = int(id)
-            if id < 0:
-                id = 0
-            
-            m = services.message_service.get(id)
-            if m is None:
-                return Response.create_error_response(404, 'Message not found')
-            
-            return Response.create_response(200, 'Message loaded', { 'data': m.ToJson()} )
-        
-        except Exception as e:
-            logger.error(f'Error getting message: {e}')
-            return Response.create_response(500, str(e))
+        return Response.create_response(
+            status=status.HTTP_200_OK,
+            message= 'Message loaded', 
+            data={'data': message.ToJson()})
+
+    except Exception as e:
+        logger.error(f"Error getting message: {e}")
+        Response.create_error_response(
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            error=str(e))
